@@ -1,0 +1,199 @@
+---
+title: "Devoir 5. Séries temporelles"
+author: "Heidi Pascagaza"
+date: "31/7/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+Les données du fichier hawai.csv comprennent les moyennes des mesures mensuelles de CO2 atmosphérique entre en ppm-volume collectées au Mauna Loa Observatory à Hawai de mars 1958 à décembre 2001, inclusivement.
+
+```{r}
+library("tidyverse")
+library("forecast")
+library ("cowplot")
+library ("lubridate")
+```
+
+# 1. Exploration initiale des données
+
+Les données de hawai.csv sont utilisées pour créer, modéliser et évaluer une série temporelle comme indiqué ci-dessous.
+
+```{r}
+hawaiCO2_data <- read_csv("data/hawai.csv")
+hawai_CO2 <- hawaiCO2_data %>%
+  mutate(time = date_decimal(hawaiCO2_data$time, tz = "UTC"))
+glimpse(hawai_CO2)
+```
+
+Initialement, les données sont chargées. Il est possible d’observer à partir de l’ensemble des données que les valeurs de temps sont exprimées en décimales. Les données de temps sont transformées en données de type temporaires avec la fonction `date_decimal` du paquet lubridate, indiquant le fuseau horaire au moyen de la fonction `tz`.
+
+Ensuite avec la fonction `glimpse`, il est possible d’observer que les données sont composées de 526 lignes qui présentent le temps transformé en données de type temporelles et la concentration de CO2 (ppm-volume).
+
+Les données sont ensuite explorées de manière graphique, en utilisant la fonction `ggplot`. On observe un comportement croissant de la concentration de CO2 en fonction du temps.
+
+```{r}
+hawai_CO2 %>%
+  ggplot(aes(x=time, y=CO2))+ geom_line()
+```
+
+## 1.2. Création de la série temporelle du CO2
+
+Une série temporelle de la concentration en CO2 (ppm - volume) en fonction du temps est alors créée. Ceci est fait en utilisant la fonction `stats::ts()`. La date de début ( 03 mars - 1958) est identifiée comme la première donnée de l’ensemble de données à l’aide de la fonction `start` au mois de mars (3), avec une `fréquence` mensuelle (12 mois dans une année).
+
+```{r}
+hawaiCO2_ts <- ts(hawai_CO2 %>% dplyr::select(-time),
+                  start = c(hawai_CO2$time[1]%>% year(),3),
+                  frequency = 12)
+```
+
+Ensuite, on peut avoir un aperçu du comportement de la série en utilisant le paquet forecast et la fonction `ggseasonplot`.
+
+```{r}
+ggA <- ggseasonplot(hawaiCO2_ts, year.labels=TRUE) +
+  ylab("CO2") 
+ggB <- ggseasonplot(hawaiCO2_ts, polar=TRUE) + ylab("CO2")
+plot_grid(ggA,ggB, ncol=2, labels=c("A","B"))
+```
+
+Les graphiques *A* et *B* permettent de constater qu’il existe une tendance à l’augmentation de la concentration de CO2 (ppm-volume) au fil des ans. De plus, que le graphique *A* permet aussi de voir une fluctuation saisonnière, qui montre une tendance générale de façon régulière dans les mois, avec une diminution des concentrations au mois de juillet - août.
+
+# 3. Série temporelle. 
+
+## 3.1. Création de la série d’entraînement et la série de test. 
+
+Postérieurement, la série est divisée en deux parties en utilisant la fonction `window`: la série d’entraînement qui représente environ le 70 % des données et une autre la série de test qui représente environ le 30 % des données. La série d’entraînement est séparée des observations enregistrées depuis le mois 3 (début) de 1958 au mois 12 (fin) de 1988. D’ailleurs la série de test des données est comprise entre les mois 1 de 1989 au mois 12 de 2001 (30%).
+
+
+```{r}
+CO2_ts_train <- window(hawaiCO2_ts, start = c(1958, 3), end = c(1988, 12))
+CO2_ts_test <- window(hawaiCO2_ts, start = c(1989, 1), end = c(2001, 12))
+```
+
+## 3.2.Modélisation de la série temporelle - Méthode ETS
+
+La méthode ETA est choisie pour réaliser le modèle de prévision pour les raisons suivantes :
+
+* La série temporelle présente un comportement non stationnaire, ce qui signifie qu’il n’y a pas de moyenne constante dans le temps. Dans ce cas-là la moyenne augmente en fonction du temps.
+
+* Il y a une tendance de fluctuations saisonnières des données qui peut expliquer les données futures de la modélisation.
+
+* La méthode donne plus de poids aux valeurs précédentes proches.
+
+Le modèle ETA (A,A,A) permet la description du modèle de projection au moyen d’équations de prévision, de niveau, de tendance et de session par modélisation additive.
+
+La modélisation est effectuée à l’aide de la méthode ETS et la comparaison de la série de test et la série d’origine est effectuée pour visualiser l’ajustement du modèle.
+
+```{r}
+ets_CO2 <- CO2_ts_train %>% ets()
+hawai_CO2_ets <- ets_CO2 %>% forecast(h = length(CO2_ts_test))
+autoplot(hawai_CO2_ets) + autolayer(CO2_ts_test, color = "red") 
+```
+
+Le représentation graphique de la série confirme une tendance qui décrit l'augmentation à long terme de la variable de concentration en CO2. De plus, il est possible de voir une fluctuation saisonnière avec une structure périodique qui oscille dans une tendance régulière selon le calendrier.
+
+## 3.3. Analyse de la précision du modèle.
+
+```{r}
+accuracy(hawai_CO2_ets, hawaiCO2_ts)
+```
+
+L’évaluation de la précision du modèle est effectuée par la fonction `accuracy` et la valeur de Mean Absolute Scaled Error (MASE) résultant ainsi de la modélisation :
+
+MASE - training set ETS | 0.2034 MASE - test set ETS | 0.7198
+
+À partir des valeurs MASE, il est possible de prouver que les valeurs sont proches de zéro, ce qui indique une bonne précision. Il est important de remarquer qu’il y a une meilleure précision dans les données d’entraînement par rapport aux données de test.
+
+En plus du graphique du modèle, on observe que les données originales mises en évidence par la ligne rouge sont situées dans les limites inférieure et supérieure projetées par le modèle.
+
+Dans la parte suivant les paramètres des équations du modèle sont décrits et il est mis en évidence les valeurs des intervalles inférieurs et supérieurs entre lesquels les données de prédiction du modèle pourraient être situées.
+
+```{r}
+summary(hawai_CO2_ets)
+```
+
+ 
+La construction des équations est donnée par : 
+
+$Prévision = yˆ_{t+h|t}=l_t+h=b_t+S_{t−m+hm}$
+
+$Niveau = α(yt−S_{t−m})+α(1−α)(l_{t−1}+b_{t−1})$
+
+avec un $α = 0.6698$
+
+Le paramètre alpha décrit la distribution du poids, cette valeur s'éloignant de 0 et se rapprochant de 1 indique le poids le plus élevé des événements les plus récents. 
+
+$Tendance = t= β(lt−l_{t−1})+(1−β)b_{t−1}$
+
+On a $β = 0.003$, étant $β$ le paramètre qui décrit la vitesse à laquelle la tendance peut changer. Cette faible valeur indique que le changement est lent au cours du temps.
+
+$Saison =γ(y_t−l_{t−1}−b_{t−1})+(1−γ)S_{t−m}; $ 
+
+avec un $γ = 2e-04$
+
+$γ$ est un paramètre de la portion saisonnière qui fluctue autour de zéro. 
+
+L'absence de la valeur phi indique que l'adoucissement n'est probablement pas nécessaire.
+
+Les composantes du modèle par la méthode ETS sont présentées ci-dessous: 
+
+```{r}
+autoplot (ets_CO2)
+```
+
+En observant les graphiques de level et observed, il est possible de constater que la concentration de CO2 augmente en fonction du temp.
+
+En autre, le graphique season montre la variabilité des données au cours du temps, il est possible de mettre en évidence la fluctuation autour de zéro, présentant un comportement oscillent similaire au cours des années.
+
+# 4. Analyse des résidus du modéle.
+
+```{r}
+checkresiduals(ets_CO2)
+```
+Le premier graphique permet de constater que les résidus sont principalement répartis autour de la valeur zéro. Cela peut donner une indication que la moyenne des résidus est proche de zéro, mais on observe deux pics qui peuvent être liés à des événements extrêmes au cours de ces deux années et qui peuvent influencer l’augmentation anormale des concentrations de CO2.
+
+À partir du deuxième graphique de l’autocorrélogramme, il est possible de prouver que la plupart des résidus restent dans les intervalles de confiance, de sorte que le modèle peut être considéré comme valide.
+
+À partir du troisième graphique, il est possible d’apprécier une distribution des données apparemment de type normal. Cependant, la présence d’une paire de données qui s’écartent de la distribution peut faire que la distribution des résidus ne soient pas de façon normale. C’est pourquoi il est important de vérifier cette indication au moyen d’un test de normalité.
+
+La valeur de p = 5.676e-09 indique la faible probabilité que les résidus soient générés par un bruit blanc.
+
+Le test de Shapiro est fait pour évaluer la normalité.
+
+```{r}
+shapiro.test(residuals(ets_CO2))
+```
+
+La faible valeur p < 0,05 indique que les résidus ne sont pas distribués de manière normale, peut-être parce que les intervalles du modèle sont trop restreints. Cependant, la prédiction est valable telle qu’elle a été évaluée précédemment par la précision du modèle.
+
+# 5.Transformation de Box-Cox
+
+La transformation de Box-Cox largement utilisée pour sa polyvalence est effectuée avec la série temporelle appliquée à la série d’entraînement, en utilisant le paramètre lambda qui est estimé comme la valeur optimale par la fonction `Forecast::Box.Cox.lambda`
+
+Le modèle d’ajustement est présenté ci-dessous.
+
+```{r}
+ets_CO2_B <- CO2_ts_train %>% ets(lambda = BoxCox.lambda(CO2_ts_train))
+hawai_CO2_B <- ets_CO2_B %>%
+  forecast(h = length(CO2_ts_test))
+
+autoplot(hawai_CO2_B) + autolayer(CO2_ts_test, color = "red") 
+accuracy(hawai_CO2_B, hawaiCO2_ts)
+```
+
+À partir des valeurs MASE, on peut observer que le modèle présente une légère amélioration étant donné que ces valeurs sont plus proches de zéro. Pour la série d’entraînement la valeur MASE a un pourcentage de différence de 3,3% par rapport au modèle initial, alors que pour la valeur MASE de la série de test il y a un pourcentage de différence de 4,5%.
+
+```{r}
+checkresiduals(hawai_CO2_B)
+shapiro.test(residuals(hawai_CO2_B))
+```
+
+En ce qui concerne l’analyse des résidus, il est possible d’affirmer qu’il n’y a pas de changements significatifs. Dans le premier graphique, on observe que les résidus sont constamment répartis autour de la valeur zéro. Alors que le graphique de normalité montre la possibilité que les résidus ne soient pas distribués de manière normale.
+
+La valeur p du test Ljung-Box et le test de normalité des résidus ne montrent pas de changements significatifs. D’après le test de normalité, la valeur p = 5,491e-07 < 0,05 indique qu’il n’y a pas de distribution normale des résidus.
+
+L’application de la transformation Box-Cox montre une légère amélioration de l’efficacité du modèle mais n’est pas significative, de sorte que le modèle initial pourrait être conservé pour être utilisé dans la projection.
+
+Le modèle ETS s’adapte bien à la projection comme l’a prouvé la fonction de précision. Graphiquement il est possible de voir que les données réelles se trouvent dans la zone de projection du modèle, ce qui indique que la projection s’adapte bien aux données de formation pour projeter 30% des données avec une grande fiabilité.
+

@@ -1,0 +1,62 @@
+library("tidyverse")
+library("forecast")
+library ("cowplot")
+library ("lubridate")
+
+
+###############1. Exploration initiale des données################
+
+hawaiCO2_data <- read_csv("data/hawai.csv")
+hawai_CO2 <- hawaiCO2_data %>%
+  mutate(time = date_decimal(hawaiCO2_data$time, tz = "UTC"))
+glimpse(hawai_CO2)
+
+hawai_CO2 %>%
+  ggplot(aes(x=time, y=CO2))+ geom_line()
+
+##############1.2.Création de la série temporelle du CO2##########
+
+hawaiCO2_ts <- ts(hawai_CO2 %>% dplyr::select(-time),
+                  start = c(hawai_CO2$time[1]%>% year(),3),
+                  frequency = 12)
+
+ggA <- ggseasonplot(hawaiCO2_ts, year.labels=TRUE) +
+  ylab("CO2") 
+ggB <- ggseasonplot(hawaiCO2_ts, polar=TRUE) + ylab("CO2")
+plot_grid(ggA,ggB, ncol=2, labels=c("A","B"))
+
+####################### 3. Série temporelle##############################
+#############3.Création de serie d’entraînement et serie de test#########
+
+CO2_ts_train <- window(hawaiCO2_ts, start = c(1958, 3), end = c(1988, 12))
+CO2_ts_test <- window(hawaiCO2_ts, start = c(1989, 1), end = c(2001, 12))
+
+###########3.1.Modelisation de la série temporelle - Méthode ETS########
+
+ets_CO2 <- CO2_ts_train %>% ets()
+hawai_CO2_ets <- ets_CO2 %>% forecast(h = length(CO2_ts_test))
+autoplot(hawai_CO2_ets) + autolayer(CO2_ts_test, color = "red") 
+
+#############3.2. Analyse de la précision du modèle.####################
+
+accuracy(hawai_CO2_ets, hawaiCO2_ts)
+summary(hawai_CO2_ets)
+autoplot (ets_CO2)
+
+
+#######################4. Analyse des résidus du modéle.#################
+
+checkresiduals(ets_CO2)
+shapiro.test(residuals(ets_CO2))
+
+#######################5.Transformation de Box-Cox#######################
+
+ets_CO2_B <- CO2_ts_train %>% ets(lambda = BoxCox.lambda(CO2_ts_train))
+hawai_CO2_B <- ets_CO2_B %>%
+  forecast(h = length(CO2_ts_test))
+
+autoplot(hawai_CO2_B) + autolayer(CO2_ts_test, color = "red") 
+accuracy(hawai_CO2_B, hawaiCO2_ts)
+
+checkresiduals(hawai_CO2_B)
+shapiro.test(residuals(hawai_CO2_B))
